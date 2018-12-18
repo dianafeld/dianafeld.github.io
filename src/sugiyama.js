@@ -1,3 +1,5 @@
+'use strict';
+
 class Graph {
     constructor(nodes, edges) {
         this.nodes = {};
@@ -29,64 +31,40 @@ class Graph {
 
 function sugiyama(nodes, edges) {
     const graph = new Graph(nodes, edges);
-    console.log(graph);
+    // console.log(graph);
 
-    if (!graph.nodes) {
-        return nodes;
+    if (Object.keys(graph.nodes) == 0) {
+        return [nodes, edges];
     }
 
     const layers = longestPathLayering(graph);
     const maxLayer = Math.max(...Object.values(layers));
-    //console.log(layers);
+    // console.log(layers);
     //console.log(maxLayer);
 
     addDummyVertices(graph, layers);
     //console.log(graph);
-    //console.log(layers);
+    // console.log(layers);
 
     let nodesByLayer = new Array(maxLayer + 1).fill().map(() => []);
     for (let vertex in layers) {
         nodesByLayer[layers[vertex]].push(parseInt(vertex));
     }
-    console.log(JSON.stringify(nodesByLayer));
+    //console.log(JSON.stringify(nodesByLayer));
 
     nodesByLayer = edgeCrossingMinimization(graph, nodesByLayer);
-    console.log(JSON.stringify(nodesByLayer));
+    // console.log(JSON.stringify(nodesByLayer));
+
+    computeHorizontalPlacement(graph, nodesByLayer);
 
     for (let layer = 0; layer < nodesByLayer.length; ++layer) {
         for (let i = 0; i < nodesByLayer[layer].length; ++i) {
             graph.nodes[nodesByLayer[layer][i]].y = 50 + 100 * layer;
-            graph.nodes[nodesByLayer[layer][i]].x = 50 + 100 * i;
+            graph.nodes[nodesByLayer[layer][i]].x = width / 2 + 100 * graph.nodes[nodesByLayer[layer][i]].x;
         }
     }
 
-    let resultNodes = [];
-    for (let node of Object.values(graph.nodes)) {
-        if (!node.dummy) {
-            resultNodes.push(node);
-        }
-    }
-
-    let resultLinks = [];
-    for (let node of resultNodes) {
-        for (let toVertex of graph.edges[node.id]) {
-            let endVertex = toVertex;
-            interim = [];
-            while (graph.nodes[endVertex].dummy) {
-                interim.push(graph.nodes[endVertex]);
-                endVertex = graph.edges[endVertex][0];
-            }
-            let source = node;
-            let target = graph.nodes[endVertex];
-            if (source.id < target.id) {
-                resultLinks.push({source: source, target: target, left: false, right: true, interim: interim});
-            } else {
-                resultLinks.push({source: target, target: source, left: true, right: false, interim: interim});
-            }
-        }
-    }
-    console.log(JSON.stringify(resultNodes));
-    return [resultNodes, resultLinks];
+    return convertToEditorFormat(graph);
 }
 
 function dfs(graph, visited, topsort, vertex) {
@@ -104,12 +82,16 @@ function dfs(graph, visited, topsort, vertex) {
 }
 
 function longestPathLayering(graph) {
-    visited = new Array(graph.nodes.length).fill(0);
-    topsort = []
+    const visited = {};
+    const topsort = [];
 
-    for (let i = 0; i < visited.length; ++i) {
-        if (visited[i] == 0) {
-            dfs(graph, visited, topsort, nodes[i].id);
+    for (let vertex of Object.keys(graph.nodes)) {
+        visited[vertex] = 0;
+    }
+
+    for (let vertex of Object.keys(graph.nodes)) {
+        if (visited[vertex] == 0) {
+            dfs(graph, visited, topsort, vertex);
         }
     }
     //console.log(topsort);
@@ -126,17 +108,26 @@ function longestPathLayering(graph) {
         }
     }
 
+    for (let vertex of topsort) {
+        if (graph.edges[vertex].length > 0) {
+            layers[vertex] = layers[graph.edges[vertex][0]] - 1;
+        }
+        for (let neighbor of graph.edges[vertex]) {
+            layers[vertex] = Math.min(layers[vertex], layers[neighbor] - 1);
+        }
+    }
+
     return layers;
 }
 
 function addDummyVertices(graph, layers) {
-    nextAvailableDummyId = -1;
+    let nextAvailableDummyId = -1;
     for (let node of Object.values(graph.nodes)) {
         if (node.dummy) {
             continue;
         }
 
-        newEdges = [];
+        const newEdges = [];
         for (let neighbor of graph.edges[node.id]) {
             if (layers[neighbor] == layers[node.id] + 1) {
                 newEdges.push(neighbor);
@@ -219,7 +210,7 @@ function orderByBarycenter(adjMatrix, rowNodes, columnNodes) {
         return 1;
     });
 
-    newOrder = []
+    const newOrder = []
     for (let entry of barycenters) {
         newOrder.push(rowNodes[entry[1]]);
     }
@@ -229,7 +220,7 @@ function orderByBarycenter(adjMatrix, rowNodes, columnNodes) {
 function tryUpdateBest(bestOrder, bestCrossings, nodesByLayer, graph) {
     let crossings = countCrossings(nodesByLayer, graph);
     if (crossings < bestCrossings) {
-        console.log(bestOrder);
+        //console.log(bestOrder);
         bestOrder = nodesByLayer.slice();
         bestCrossings = crossings;
     }
@@ -322,7 +313,7 @@ function phaseTwo(bestOrder, bestCrossings, nodesByLayer, graph) {
             
             rowBarycenters = reverseSameValues(rowBarycenters);
             
-            newOrder = [];
+            const newOrder = [];
             for (let entry of rowBarycenters) {
                 newOrder.push(nodesByLayer[layer - 1][entry[1]]);
             }
@@ -343,7 +334,7 @@ function phaseTwo(bestOrder, bestCrossings, nodesByLayer, graph) {
             
             columnBarycenters = reverseSameValues(columnBarycenters);
             
-            newOrder = [];
+            const newOrder = [];
             for (let entry of columnBarycenters) {
                 newOrder.push(nodesByLayer[layer][entry[1]]);
             }
@@ -367,4 +358,156 @@ function edgeCrossingMinimization(graph, nodesByLayer) {
     
     [bestOrder, bestCrossings, nodesByLayer] = phaseTwo(bestOrder, bestCrossings, nodesByLayer, graph);
     return bestOrder;
+}
+
+function placementIteration(prevLayer, curLayer, graph, isDown) {
+    const rowNodes = isDown ? prevLayer : curLayer;
+    const columnNodes = isDown ? curLayer : prevLayer;
+
+    let adjMatrix = makeAdjacencyMatrix(rowNodes, columnNodes, graph);
+    if (!isDown) {
+        adjMatrix = transposeMatrix(adjMatrix);
+    }
+    const priorities = [];
+    for (let i = 0; i < curLayer.length; ++i) {
+        const toVertex = curLayer[i];
+        if (graph.nodes[toVertex].dummy) {
+            priorities.push([prevLayer.length + 1, i]);
+        } else {
+            let degree = 0;
+            for (let fromVertex of prevLayer) {
+                degree += adjMatrix[fromVertex][toVertex];
+            }
+            priorities.push([degree, i]);
+        }
+    }
+    priorities.sort(function(lhs, rhs) { 
+        if (lhs[0] < rhs[0]) {
+            return -1;
+        }
+        if (lhs[0] == rhs[0] && lhs[1] < rhs[1]) {
+            return -1;
+        }
+        return 1;
+    });
+
+    adjMatrix = transposeMatrix(adjMatrix);
+
+    const barycenters = computeRowBarycenters(adjMatrix, curLayer, prevLayer);
+
+    const placed = new Set();
+    for (let entry of priorities) {
+        const curIndex = entry[1];
+        const vertex = curLayer[curIndex];
+        const barycenter = Math.round(barycenters[curIndex][0]);
+        if (barycenter == graph.nodes[vertex].x) {
+            continue;
+        }
+
+        if (barycenter < graph.nodes[vertex].x) {
+            if (curIndex == 0) {
+                graph.nodes[vertex].x = barycenter;
+                continue;
+            }
+
+            let maxIndex = -1;
+            for (let item of placed) {
+                if (item < curIndex) {
+                    maxIndex = Math.max(maxIndex, item);
+                }
+            }
+
+            if (maxIndex == -1 || graph.nodes[curLayer[maxIndex]].x < barycenter - (curIndex - maxIndex)) {
+                graph.nodes[vertex].x = barycenter;
+                for (let l = 1; l <= curIndex; ++l) {
+                    if (barycenter - l >= graph.nodes[curLayer[curIndex - l]].x) {
+                        break;
+                    }
+                    graph.nodes[curLayer[curIndex - l]].x = barycenter - l;
+                }
+            } else {
+                for (let l = 1; l <= curIndex - maxIndex; ++l) {
+                    graph.nodes[curLayer[maxIndex + l]].x = graph.nodes[curLayer[maxIndex]].x + l;
+                }
+            }
+        } else {
+            if (curIndex == curLayer.length - 1) {
+                graph.nodes[vertex].x = barycenter;
+                continue;
+            }
+
+            let minIndex = curLayer.length;
+            for (let item of placed) {
+                if (item > curIndex) {
+                    minIndex = Math.min(minIndex, item);
+                }
+            }
+            if (minIndex == curLayer.length || graph.nodes[curLayer[minIndex]].x > barycenter + minIndex - curIndex) {
+                graph.nodes[vertex].x = barycenter;
+                for (let l = 1; l <= curLayer.length - curIndex - 1; ++l) {
+                    if (barycenter + l <= graph.nodes[curLayer[curIndex + l]].x) {
+                        break;
+                    }
+                    graph.nodes[curLayer[curIndex + l]].x = barycenter + l;
+                }
+            } else {
+                for (let l = 1; l <= minIndex - curIndex; ++l) {
+                    graph.nodes[curLayer[minIndex - l]].x = graph.nodes[curLayer[minIndex]].x - l;
+                }
+            }
+        }
+
+        placed.add(curIndex);
+    }
+} 
+
+function computeHorizontalPlacement(graph, nodesByLayer) {
+    for (let layer = 0; layer < nodesByLayer.length; ++layer) {
+        for (let i = 0; i < nodesByLayer[layer].length; ++i) {
+            graph.nodes[nodesByLayer[layer][i]].y = 50 + 100 * layer;
+            graph.nodes[nodesByLayer[layer][i]].x = i;
+        }
+    }
+
+    for (let layer = 1; layer < nodesByLayer.length; ++layer) {
+        placementIteration(nodesByLayer[layer - 1], nodesByLayer[layer], graph, true);
+    }
+
+    for (let layer = nodesByLayer.length - 1; layer > 0; --layer) {
+        placementIteration(nodesByLayer[layer - 1], nodesByLayer[layer], graph, false);
+    }
+
+    for (let layer = 1; layer < nodesByLayer.length; ++layer) {
+        placementIteration(nodesByLayer[layer - 1], nodesByLayer[layer], graph, true);
+    }
+}
+
+function convertToEditorFormat(graph) {
+    let resultNodes = [];
+    for (let node of Object.values(graph.nodes)) {
+        if (!node.dummy) {
+            resultNodes.push(node);
+        }
+    }
+
+    let resultLinks = [];
+    for (let node of resultNodes) {
+        for (let toVertex of graph.edges[node.id]) {
+            let endVertex = toVertex;
+            const interim = [];
+            while (graph.nodes[endVertex].dummy) {
+                interim.push(graph.nodes[endVertex]);
+                endVertex = graph.edges[endVertex][0];
+            }
+            let source = node;
+            let target = graph.nodes[endVertex];
+            if (source.id < target.id) {
+                resultLinks.push({source: source, target: target, left: false, right: true, interim: interim});
+            } else {
+                resultLinks.push({source: target, target: source, left: true, right: false, interim: interim});
+            }
+        }
+    }
+    //console.log(JSON.stringify(resultNodes));
+    return [resultNodes, resultLinks];
 }

@@ -33,10 +33,16 @@ let links = [
 function sugiyamaWrapper() {
   [nodes, links] = sugiyama(nodes, links);
   console.log(JSON.stringify(nodes));
+  console.log(JSON.stringify(links));
   restart();
 }
 
-document.getElementById("button").onclick = () => sugiyamaWrapper();
+document.getElementById("layout-button").onclick = () => sugiyamaWrapper();
+document.getElementById("clear-button").onclick = function() {
+  nodes.length = 0;
+  links.length = 0;
+  restart();
+}
 
 // init D3 force layout
 // const force = d3.forceSimulation()
