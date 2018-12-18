@@ -1,5 +1,7 @@
 # Graph layering (Sugiyama Method) 
 
+https://meerstein.github.io/
+
 Step 1. Longest path layering (layer assignment)  
 Step 2. Barycenter method (edge crossing minimization)  
 Step 3. Priority layout method (horizontal coordinates assignment)  
