@@ -3,6 +3,14 @@ const width = 960;
 const height = 500;
 const colors = d3.scaleOrdinal(d3.schemeCategory10);
 
+const chooseColor = function(d) {
+  let color = d.dummy ? d3.rgb(255, 255, 255) : colors(d.id);
+  if (d === selectedNode) {
+    return d3.rgb(color).brighter().toString();
+  }
+  return color;
+}
+
 const svg = d3.select('#graph')
   .append('svg')
   .attr('oncontextmenu', 'return false;')
@@ -12,28 +20,41 @@ const svg = d3.select('#graph')
 // set up initial nodes and links
 //  - nodes are known by 'id', not by index in array.
 //  - links are always source < target; edge directions are set by 'left' and 'right'.
-let nodes = [
+const example1Nodes = [
   { id: 0, x: width / 2, y: height / 2, dummy: false},
   { id: 1, x: width / 3, y: height / 3, dummy: false},
   { id: 2, x: 2 * width / 3, y: height / 3, dummy: false},
   { id: 3, x: 2 * width / 3, y: 2 * height / 3, dummy: false},
   { id: 4, x: 2.5 * width / 3, y: 0.5 * height / 3, dummy: false}
 ];
-let lastNodeId = 4;
-let links = [
-  { source: nodes[0], target: nodes[1], left: false, right: true},
-  { source: nodes[1], target: nodes[2], left: true, right: false},
-  { source: nodes[0], target: nodes[2], left: false, right: true},
-  { source: nodes[2], target: nodes[3], left: false, right: true},
-  { source: nodes[1], target: nodes[4], left: true, right: false},
-  { source: nodes[3], target: nodes[4], left: true, right: false},
+const example1LastNodeId = 4;
+const example1Links = [
+  { source: 0, target: 1, left: false, right: true},
+  { source: 1, target: 2, left: true, right: false},
+  { source: 0, target: 2, left: false, right: true},
+  { source: 2, target: 3, left: false, right: true},
+  { source: 1, target: 4, left: true, right: false},
+  { source: 3, target: 4, left: true, right: false},
 ];
 
+let nodes = JSON.parse(JSON.stringify(example1Nodes));
+let lastNodeId = example1LastNodeId;
+let links = makeLinksByExample(example1Links, nodes);
+
+function makeLinksByExample(exampleLinks, nodes) {
+  const result = [];
+  for (let link of exampleLinks) {
+    const newLink = JSON.parse(JSON.stringify(link));
+    newLink.source = nodes[link.source];
+    newLink.target = nodes[link.target];    
+    result.push(newLink)
+  }
+  return result;
+}
 
 function sugiyamaWrapper() {
-  [nodes, links] = sugiyama(nodes, links);
-  console.log(JSON.stringify(nodes));
-  console.log(JSON.stringify(links));
+  const withDummyCheckbox = document.getElementById("dummy");
+  [nodes, links] = sugiyama(nodes, links, withDummyCheckbox.checked);
   restart();
 }
 
@@ -43,14 +64,12 @@ document.getElementById("clear-button").onclick = function() {
   links.length = 0;
   restart();
 }
-
-// init D3 force layout
-// const force = d3.forceSimulation()
-//   .force('link', d3.forceLink().id((d) => d.id).distance(150))
-//   .force('charge', d3.forceManyBody().strength(-500))
-//   .force('x', d3.forceX(width / 2))
-//   .force('y', d3.forceY(height / 2))
-//   .on('tick', tick);
+document.getElementById("example1-button").onclick = function() {
+  nodes = JSON.parse(JSON.stringify(example1Nodes));
+  lastNodeId = example1LastNodeId;
+  links = makeLinksByExample(example1Links, nodes);
+  restart();
+}
 
 // init D3 drag support
 const drag = d3.drag()
@@ -162,7 +181,7 @@ function restart() {
     .style('marker-start', (d) => d.left ? 'url(#start-arrow)' : '')
     .style('marker-end', (d) => d.right ? 'url(#end-arrow)' : '')
     .on('mousedown', (d) => {
-      if (d3.event.ctrlKey) return;
+      //if (d3.event.ctrlKey) return;
 
       // select link
       mousedownLink = d;
@@ -178,7 +197,7 @@ function restart() {
 
   // update existing nodes (selected visual states)
   circle.selectAll('circle')
-    .style('fill', (d) => (d === selectedNode) ? d3.rgb(colors(d.id)).brighter().toString() : colors(d.id))
+    .style('fill', chooseColor)
 
   // remove old nodes
   circle.exit().remove();
@@ -189,7 +208,7 @@ function restart() {
   g.append('svg:circle')
     .attr('class', 'node')
     .attr('r', 12)
-    .style('fill', (d) => (d === selectedNode) ? d3.rgb(colors(d.id)).brighter().toString() : colors(d.id))
+    .style('fill', chooseColor)
     .style('stroke', (d) => d3.rgb(colors(d.id)).darker().toString())
     .on('mouseover', function (d) {
       if (!mousedownNode || d === mousedownNode) return;
@@ -202,7 +221,7 @@ function restart() {
       d3.select(this).attr('transform', '');
     })
     .on('mousedown', (d) => {
-      if (d3.event.ctrlKey) return;
+      //if (d3.event.ctrlKey) return;
 
       // select node
       mousedownNode = d;
@@ -277,7 +296,7 @@ function mousedown() {
   // because :active only works in WebKit?
   svg.classed('active', true);
 
-  if (d3.event.ctrlKey || mousedownNode || mousedownLink) return;
+  if (mousedownNode || mousedownLink) return;
 
   // insert new node at point
   const point = d3.mouse(this);
@@ -328,10 +347,10 @@ function keydown() {
   lastKeyDown = d3.event.keyCode;
 
   // ctrl
-  if (d3.event.keyCode === 17) {
-    circle.call(drag);
-    svg.classed('ctrl', true);
-  }
+  // if (d3.event.keyCode === 17) {
+  //   circle.call(drag);
+  //   svg.classed('ctrl', true);
+  // }
 
   if (d3.event.keyCode == 83) { // S
     sugiyamaWrapper();
@@ -367,10 +386,10 @@ function keyup() {
   lastKeyDown = -1;
 
   // ctrl
-  if (d3.event.keyCode === 17) {
-    circle.on('.drag', null);
-    svg.classed('ctrl', false);
-  }
+  // if (d3.event.keyCode === 17) {
+  //   circle.on('.drag', null);
+  //   svg.classed('ctrl', false);
+  // }
 }
 
 // app starts here
